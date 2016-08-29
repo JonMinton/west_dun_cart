@@ -9,7 +9,7 @@ require(pacman)
 p_load(
   readr, stringr, car,
   purrr, tidyr, dplyr, 
-  ggplot2, 
+  ggplot2, RColorBrewer,
   lattice,
   tmap, rgeos, sp, maptools,
   xlsx
@@ -42,7 +42,7 @@ plot(wd_cart)
 
 # Age distribution of population 
 
-wd_cart_agegrp_fort <- fortify(wd_cart_agegrp, region = "zonecode") %>% 
+wd_cart_fort <- fortify(wd_cart, region = "zonecode") %>% 
   tbl_df %>% rename(zonecode = id)
 
 
@@ -53,7 +53,7 @@ attribute_data %>%
   filter(Time_Period == 2011) %>% 
   select(datazone = Datazone, age_group, proportion) %>% 
   spread(age_group, proportion)  %>% 
-  right_join(wd_cart_agegrp_fort, by =c("datazone"="zonecode")) -> wd_cart_agegrp_fort
+  right_join(wd_cart_fort, by =c("datazone"="zonecode")) -> wd_cart_agegrp_fort
 
 wd_cart_agegrp_long <- wd_cart_agegrp_fort  %>% 
   gather(key = "age_group", value = "proportion", `0_to_15`:`75Plus`) %>% 
@@ -101,18 +101,61 @@ ggsave("maps/cart_proportion_by_age.png", width = 20, height = 20, units = "cm",
 
 
 
+# Income deprived proportion 
+
+wd_cart_fort <- fortify(wd_cart, region = "zonecode") %>% 
+  tbl_df %>% rename(zonecode = id)
+
+attribute_data %>% 
+  filter(str_detect(Indicator, "income")) %>% 
+  mutate(proportion = Numerator / Denominator) %>% 
+  select(datazone = Datazone, proportion) %>% 
+  right_join(wd_cart_fort, by =c("datazone"="zonecode")) -> wd_cart_income_deprived
 
 
 
+ggplot(wd_cart_income_deprived, 
+       aes(x = long, y = lat, group = group)
+) +
+  geom_polygon(aes(fill = proportion)) + 
+  scale_fill_gradientn(
+    colours = colorRampPalette(brewer.pal(12, "Paired"))(200), 
+    limits = c(0, 1),
+    breaks = c(0, 0.2, 0.4, 0.6, 0.8, 1.0)
+  ) + 
+  theme_clean() + 
+  labs(title = "Proportion of population Income Deprived", fill = "")
+
+ggsave("maps/cart_proportion_income_deprived.png", width = 15, height = 15, units = "cm", dpi = 300)
 
 
-# Specific tasks : 
 
-# Load cartogram for scotland 
-# remove dzs not in west dun
-# view and resave
+# Now to do for all indicators other than age 
 
+attribute_data %>% 
+  filter(!str_detect(Indicator, "^Age_")) %>% 
+  mutate(proportion = Numerator / Denominator) %>% 
+  select(datazone = Datazone, Indicator, proportion) %>% 
+  spread(Indicator, proportion)  %>% 
+  right_join(wd_cart_fort, by =c("datazone"="zonecode")) -> wd_cart_nondemo_fort
 
+wd_cart_nondemo_long <- wd_cart_nondemo_fort  %>% 
+  gather(key = "indicator", value = "proportion", `Adults with qualifications at higher level and above`:`Young people not in employment, education or training`) 
+
+ggplot(wd_cart_nondemo_long, 
+       aes(x = long, y = lat, group = group)
+) +
+  geom_polygon(aes(fill = proportion)) + 
+  scale_fill_gradientn(
+    colours = colorRampPalette(brewer.pal(12, "Paired"))(200), 
+    limits = c(0, 1),
+    breaks = c(0, 0.2, 0.4, 0.6, 0.8, 1.0)
+  ) + 
+  facet_wrap(~indicator) + 
+  theme_clean() + 
+  labs(title = "Proportion by attribute", fill = "")
+
+ggsave("maps/cart_proportion_by_nondemographic_attributes.png", width = 50, height = 30, units = "cm", dpi = 300)
 
 
 
