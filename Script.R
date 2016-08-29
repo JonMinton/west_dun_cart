@@ -3,7 +3,7 @@
 rm(list = ls())
 
 
-install.packages("pacman")
+#install.packages("pacman")
 
 require(pacman)
 p_load(
@@ -159,35 +159,87 @@ ggsave("maps/cart_proportion_by_nondemographic_attributes.png", width = 50, heig
 
 
 
-
 # Tasks now  --------------------------------------------------------------
 
 
 # 1. Show UR class on a map --------------------------------------------------
 
-ur_class <- read_csv("data/derived/dz_2001_by_ur_6fold_class.csv")
-ur_class %>% 
-  mutate(ur_label = factor(
-    ur_class, 
-    levels = c(1, 2, 3, 5, 6), 
-    labels = c("large_urban", "other_urban", "accessible small towns", "accessible_rural", "remote_rural")
-  )
-  ) -> ur_class
+shp <- read_shape(file = "shapefiles/scotland_2001_datazones/scotland_dz_2001.shp")
 
-shp <- read_shape(file = "data/shp/scotland_2001_datazones/scotland_dz_2001.shp")
-
-shp_ur_join <- append_data(shp = shp, data = ur_class, key.shp = "zonecode", key.data = "dz_2001")
+shp_wd_join <- append_data(
+  shp = shp, data = west_dun_lookup, key.shp = "zonecode", key.data = "Datazone",
+  ignore.na = TRUE
+                          )
+shp_wd_join <- shp_wd_join[!is.na(shp_wd_join$Datazone),]
 
 
+# tm_shape(shp_wd_join, borders = NULL) + 
+#   tm_fill("CC_Name", title = "Community Council") + 
+#   tm_legend(
+#     title.size = 2.0,
+#     text.size = 1.5
+#   ) -> this_map
 
-tm_shape(shp_ur_join, borders = NULL) + 
-  tm_fill("ur_label", title = "Urban Rural Class") + # Note - important to add title at this stage rather than later
+# does not quite work as too many community councils 
+
+# will try to join and label instead
+
+shp_wd_cc <- unionSpatialPolygons(shp_wd_join, IDs = shp_wd_join$CC_Name)
+
+# Note unionSpatialPolygons returns a SpatialPolygons object not a spatialpolygons DF
+# to convert back
+#http://gis.stackexchange.com/questions/61633/r-convert-a-spatial-polygon-objet-to-spatial-polygon-data-frame
+tmp_df <- data.frame(id = getSpPPolygonsIDSlots(shp_wd_cc))
+row.names(tmp_df) <- getSpPPolygonsIDSlots(shp_wd_cc)
+
+shp_wd_cc <- SpatialPolygonsDataFrame(shp_wd_cc, data = tmp_df)
+rm(tmp_df)
+
+tm_shape(shp_wd_cc) + 
+  tm_borders(lwd = 1) + 
   tm_legend(
     title.size = 2.0,
     text.size = 1.5
-  ) -> this_map
+  ) + 
+  tm_text("id", shadow = T, remove.overlap = T) -> cc_map
 
-save_tmap(this_map, 
-          filename = "maps/Scotland_urbanrural_standard.png", 
-          width = 20, height = 35, units = "cm", dpi=300
-)
+save_tmap(cc_map, filename = "maps/wd_by_cc.png", height = 15, width = 15, units = "cm", dpi = 300)
+
+# This works! 
+# Now to try to create a cartogram using cc geographies 
+
+
+attribute_data  %>% 
+  filter(Time_Period == 2014)  %>% 
+  filter(str_detect(Indicator, "^Age_"))  %>% 
+  select(datazone = Datazone, population = Denominator)   %>% 
+  inner_join(west_dun_lookup, by = c("datazone" = "Datazone")) %>% 
+  group_by(CC_Name) %>% 
+  distinct() %>% 
+  summarise(population = sum(population)) %>% 
+  append_data(
+    shp = shp_wd_cc, data = ., 
+    key.shp = "id", key.data = "CC_Name", ignore.na = T
+    ) -> wd_cc_pop
+
+write_shape(wd_cc_pop, file = "shapefiles/pop_by_cc/pop_by_cc.shp")
+
+# Read this back in from scapetoad
+
+cc_cart_by_pop <- read_shape(file = "shapefiles/cc_cart_by_pop/cc_by_pop.shp", current.projection = "longlat")
+
+
+tm_shape(cc_cart_by_pop) + 
+  tm_borders(lwd = 1) + 
+  tm_legend(
+    title.size = 2.0,
+    text.size = 1.5
+  ) + 
+  tm_text("CC_Name", shadow = T, remove.overlap = T) -> cc_cart_pop
+
+save_tmap(cc_cart_pop, filename = "maps/wd_by_cc_popcart.png", height = 15, width = 15, units = "cm", dpi = 300)
+
+
+# Cartogram by cc
+
+
